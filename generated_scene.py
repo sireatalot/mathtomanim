@@ -1,68 +1,97 @@
 from manim import *
-import numpy as np
 
-class SineCosineScene(Scene):
+class LCSAnimation(Scene):
     def construct(self):
-        axes = Axes(
-            x_range=[0, 2 * PI, PI / 2],
-            y_range=[-1.5, 1.5, 0.5],
-            x_length=10,
-            y_length=4,
-            axis_config={"color": WHITE},
-            tips=False,
-        )
-        axes_labels = VGroup(
-            axes.get_x_axis_label(Text("x")),
-            axes.get_y_axis_label(Text("y")),
-        )
+        # Input strings
+        text1 = "ABCBDAB"
+        text2 = "BDCABA"
+        m, n = len(text1), len(text2)
 
-        sine = axes.plot(lambda x: np.sin(x), color=BLUE)
-        cosine = axes.plot(lambda x: np.cos(x), color=RED)
+        # Compute DP table
+        dp = [[0]*(n+1) for _ in range(m+1)]
+        for i in range(1, m+1):
+            for j in range(1, n+1):
+                if text1[i-1] == text2[j-1]:
+                    dp[i][j] = dp[i-1][j-1] + 1
+                else:
+                    dp[i][j] = max(dp[i-1][j], dp[i][j-1])
 
-        sine_label = Text("sin").next_to(sine, UP, buff=0.2).set_color(BLUE)
-        cosine_label = Text("cos").next_to(cosine, UP, buff=0.2).set_color(RED)
+        # Backtrack to find one LCS path
+        path = []
+        i, j = m, n
+        while i > 0 and j > 0:
+            if text1[i-1] == text2[j-1]:
+                path.append((i, j))
+                i -= 1
+                j -= 1
+            elif dp[i-1][j] >= dp[i][j-1]:
+                i -= 1
+            else:
+                j -= 1
+        path.reverse()
 
-        self.play(Create(axes), Write(axes_labels))
-        self.play(Create(sine), Write(sine_label))
-        self.play(Create(cosine), Write(cosine_label))
+        # Display strings
+        txt1 = Text(text1).to_edge(UP).shift(LEFT*2)
+        txt2 = Text(text2).to_edge(LEFT).shift(DOWN*2)
+        self.play(Write(txt1), Write(txt2))
 
-        # trackers for moving points
-        tracker_sin = ValueTracker(0)
-        tracker_cos = ValueTracker(0)
+        # Create grid of cells
+        cell_size = 0.7
+        cells = VGroup()
+        for row in range(m+1):
+            for col in range(n+1):
+                rect = Square(side_length=cell_size, color=GRAY)
+                rect.move_to(
+                    LEFT*(n/2 - col)*cell_size +
+                    DOWN*(m/2 - row)*cell_size
+                )
+                cells.add(rect)
 
-        # moving dots
-        dot_sin = Dot(color=BLUE).add_updater(
-            lambda m: m.move_to(axes.c2p(tracker_sin.get_value(),
-                                         np.sin(tracker_sin.get_value()))))
-        dot_cos = Dot(color=RED).add_updater(
-            lambda m: m.move_to(axes.c2p(tracker_cos.get_value(),
-                                         np.cos(tracker_cos.get_value()))))
+        cells.shift(RIGHT*2 + DOWN*1)  # position grid near strings
+        self.play(Create(cells))
 
-        # vertical lines from x‑axis to the curves
-        line_sin = always_redraw(
-            lambda: Line(
-                axes.c2p(max(tracker_sin.get_value(), 0.001), 0),
-                axes.c2p(tracker_sin.get_value(),
-                         np.sin(tracker_sin.get_value())),
-                color=BLUE,
-            )
-        )
-        line_cos = always_redraw(
-            lambda: Line(
-                axes.c2p(max(tracker_cos.get_value(), 0.001), 0),
-                axes.c2p(tracker_cos.get_value(),
-                         np.cos(tracker_cos.get_value())),
-                color=RED,
-            )
-        )
+        # Label first row with characters of text2
+        col_labels = VGroup()
+        for idx, ch in enumerate(" " + text2):
+            label = Text(ch, font_size=24)
+            label.move_to(cells[idx].get_center())
+            col_labels.add(label)
+        # Label first column with characters of text1
+        row_labels = VGroup()
+        for idx, ch in enumerate(" " + text1):
+            label = Text(ch, font_size=24)
+            label.move_to(cells[idx*(n+1)].get_center())
+            row_labels.add(label)
 
-        self.add(dot_sin, dot_cos, line_sin, line_cos)
+        self.play(FadeIn(col_labels), FadeIn(row_labels))
 
-        self.play(
-            tracker_sin.animate.set_value(2 * PI),
-            tracker_cos.animate.set_value(2 * PI),
-            run_time=6,
-            rate_func=linear,
-        )
+        # Fill DP values cell by cell
+        number_mobs = VGroup()
+        for i in range(m+1):
+            for j in range(n+1):
+                if i == 0 or j == 0:
+                    val = 0
+                else:
+                    val = dp[i][j]
+                num = Text(str(val), font_size=24)
+                num.move_to(cells[i*(n+1)+j].get_center())
+                number_mobs.add(num)
+                self.play(FadeIn(num), run_time=0.2)
 
+        # Highlight LCS path
+        highlight = always_redraw(lambda: Rectangle(
+            width=cell_size, height=cell_size,
+            stroke_width=4, color=YELLOW
+        ).move_to(cells[path[0][0]*(n+1)+path[0][1]].get_center()))
+
+        self.add(highlight)
+        for (row, col) in path:
+            target = cells[row*(n+1)+col].get_center()
+            self.play(highlight.animate.move_to(target), run_time=0.4)
+
+        # Show final LCS length
+        lcs_len = dp[m][n]
+        result = Text(f"LCS length = {lcs_len}", font_size=36, color=GREEN)
+        result.next_to(cells, DOWN, buff=1)
+        self.play(Write(result))
         self.wait(2)

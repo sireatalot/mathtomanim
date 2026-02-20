@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    ports:
+      - "80:8000"
+    volumes:
+      - ./media:/app/media       # persist rendered videos across restarts
+      - ~/.oci:/root/.oci:ro     # OCI credentials (read-only)
+      - ./.env:/app/.env:ro      # environment variables (read-only)
+    restart: unless-stopped

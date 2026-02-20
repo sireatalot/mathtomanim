@@ -197,6 +197,61 @@ python generate_manim.py --list-models
 
 ---
 
+## Deployment (Hetzner CX32 + Docker)
+
+The app is deployed as a single Docker container serving both the frontend and backend on port 80. See [`DEPLOY.md`](./DEPLOY.md) for the full setup guide.
+
+### Updating the live deployment
+
+After making changes locally:
+
+**1. If you changed frontend code (`src/`, `index.html`, etc.):**
+
+```powershell
+# Rebuild the frontend
+npm run build
+
+# Upload changed files
+scp server.py root@5.78.186.140:~/manim-app/
+scp -r dist root@5.78.186.140:~/manim-app/
+
+# Rebuild and restart the container
+ssh root@5.78.186.140 "cd ~/manim-app && docker compose up -d --build"
+```
+
+**2. If you only changed backend code (`server.py`):**
+
+```powershell
+# Upload and restart (no rebuild needed)
+scp server.py root@5.78.186.140:~/manim-app/
+ssh root@5.78.186.140 "cd ~/manim-app && docker compose restart"
+```
+
+**3. If you changed `requirements.txt` or `Dockerfile`:**
+
+```powershell
+scp requirements.txt Dockerfile root@5.78.186.140:~/manim-app/
+ssh root@5.78.186.140 "cd ~/manim-app && docker compose up -d --build"
+```
+
+### Useful server commands
+
+```bash
+ssh root@5.78.186.140
+
+# View live logs
+docker compose -f ~/manim-app/docker-compose.yml logs -f
+
+# Check container status
+docker ps
+
+# Stop / restart
+docker compose -f ~/manim-app/docker-compose.yml down
+docker compose -f ~/manim-app/docker-compose.yml restart
+```
+
+---
+
 ## Troubleshooting
 
 **`FileNotFoundError` during render**

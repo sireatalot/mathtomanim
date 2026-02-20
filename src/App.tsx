@@ -33,7 +33,7 @@ interface Prompt {
 type BotMsg = {
   id: number;
   type: "bot";
-  status: "loading" | "done" | "error";
+  status: "loading" | "streaming" | "rendering" | "done" | "error";
   kind?: "animation" | "text";
   videoUrl?: string;
   sceneName?: string;
@@ -60,6 +60,7 @@ const ALL_PROMPTS: Prompt[] = [
 ];
 
 const STORAGE_KEY = "manim-sessions";
+const CURRENT_KEY = "manim-current";
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -82,6 +83,14 @@ function saveSessions(sessions: Session[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
 }
 
+function loadCurrentMessages(): Message[] {
+  try {
+    return JSON.parse(localStorage.getItem(CURRENT_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
 function relativeTime(ts: number): string {
   const diff = Date.now() - ts;
   const m = Math.floor(diff / 60000);
@@ -101,7 +110,7 @@ function preprocessMath(text: string): string {
 }
 
 function buildHistory(messages: Message[]): { role: "user" | "assistant"; content: string }[] {
-  return messages.flatMap((m) => {
+  return messages.flatMap((m): { role: "user" | "assistant"; content: string }[] => {
     if (m.type === "user") return [{ role: "user" as const, content: m.text }];
     if (m.type === "bot" && m.status === "done") {
       const content =
@@ -157,6 +166,50 @@ function BotBubble({ msg }: { msg: BotMsg }) {
     );
   }
 
+  if (msg.status === "rendering") {
+    return (
+      <div className="flex items-start gap-3">
+        <BotAvatar />
+        <div className="flex items-center gap-2 text-sm text-neutral-500 py-2">
+          <Loader2 size={14} className="animate-spin" />
+          Rendering animation…
+        </div>
+      </div>
+    );
+  }
+
+  if (msg.status === "streaming") {
+    return (
+      <div className="flex items-start gap-3">
+        <BotAvatar />
+        <div className="text-sm text-neutral-300 leading-relaxed max-w-2xl py-1
+          [&_p]:mb-3 [&_p:last-child]:mb-0
+          [&_strong]:text-neutral-100 [&_strong]:font-semibold
+          [&_em]:text-neutral-300
+          [&_h1]:text-neutral-100 [&_h1]:text-lg [&_h1]:font-semibold [&_h1]:mb-2
+          [&_h2]:text-neutral-100 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mb-2
+          [&_h3]:text-neutral-200 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mb-1
+          [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ul>li]:mb-1
+          [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_ol>li]:mb-1
+          [&_code]:bg-neutral-800 [&_code]:text-emerald-400 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs [&_code]:font-mono
+          [&_pre]:bg-neutral-800 [&_pre]:rounded-lg [&_pre]:p-3 [&_pre]:mb-3 [&_pre]:overflow-x-auto
+          [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-emerald-400 [&_pre_code]:text-xs
+          [&_blockquote]:border-l-2 [&_blockquote]:border-neutral-600 [&_blockquote]:pl-3 [&_blockquote]:text-neutral-400 [&_blockquote]:italic
+          [&_a]:text-blue-400 [&_a]:underline [&_hr]:border-neutral-700
+          [&_table]:w-full [&_table]:border-collapse [&_table]:mb-4 [&_table]:text-sm
+          [&_th]:bg-[#1e1e1e] [&_th]:text-neutral-100 [&_th]:font-semibold [&_th]:text-left [&_th]:px-3.5 [&_th]:py-2 [&_th]:border [&_th]:border-[#2e2e2e]
+          [&_td]:px-3.5 [&_td]:py-2 [&_td]:border [&_td]:border-[#2e2e2e] [&_td]:text-neutral-300 [&_td]:align-top
+          [&_tr:nth-child(even)_td]:bg-[#161616]"
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+            {preprocessMath(msg.text ?? "")}
+          </ReactMarkdown>
+          <span className="cursor-blink" />
+        </div>
+      </div>
+    );
+  }
+
   if (msg.status === "error") {
     return (
       <div className="flex items-start gap-3">
@@ -186,7 +239,11 @@ function BotBubble({ msg }: { msg: BotMsg }) {
           [&_pre]:bg-neutral-800 [&_pre]:rounded-lg [&_pre]:p-3 [&_pre]:mb-3 [&_pre]:overflow-x-auto
           [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-emerald-400 [&_pre_code]:text-xs
           [&_blockquote]:border-l-2 [&_blockquote]:border-neutral-600 [&_blockquote]:pl-3 [&_blockquote]:text-neutral-400 [&_blockquote]:italic
-          [&_a]:text-blue-400 [&_a]:underline [&_hr]:border-neutral-700"
+          [&_a]:text-blue-400 [&_a]:underline [&_hr]:border-neutral-700
+          [&_table]:w-full [&_table]:border-collapse [&_table]:mb-4 [&_table]:text-sm
+          [&_th]:bg-[#1e1e1e] [&_th]:text-neutral-100 [&_th]:font-semibold [&_th]:text-left [&_th]:px-3.5 [&_th]:py-2 [&_th]:border [&_th]:border-[#2e2e2e]
+          [&_td]:px-3.5 [&_td]:py-2 [&_td]:border [&_td]:border-[#2e2e2e] [&_td]:text-neutral-300 [&_td]:align-top
+          [&_tr:nth-child(even)_td]:bg-[#161616]"
         >
           <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
             {preprocessMath(msg.text ?? "")}
@@ -202,7 +259,7 @@ function BotBubble({ msg }: { msg: BotMsg }) {
       <div className="flex flex-col gap-2 flex-1">
         <p className="text-xs text-neutral-500">{msg.sceneName}</p>
         <video
-          src={`http://localhost:8000${msg.videoUrl}`}
+          src={msg.videoUrl}
           controls
           autoPlay
           loop
@@ -286,7 +343,7 @@ function HistoryPanel({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-2">
+      <div className="flex-1 overflow-y-auto scroll-dark py-2">
         {sessions.length === 0 ? (
           <p className="text-xs text-neutral-600 text-center mt-8 px-4">No previous chats yet.</p>
         ) : (
@@ -322,21 +379,28 @@ let nextSessionId = 1;
 export default function App() {
   const [prompts, setPrompts] = useState<Prompt[]>(ALL_PROMPTS);
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(loadCurrentMessages);
   const [loading, setLoading] = useState(false);
   const [sessions, setSessions] = useState<Session[]>(loadSessions);
   const [showHistory, setShowHistory] = useState(false);
   const MAX = 1000;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Persist sessions to localStorage
+  // Persist sessions and current messages to localStorage
   useEffect(() => {
     saveSessions(sessions);
   }, [sessions]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Only save completed/non-loading messages so a refresh doesn't show a stuck loading state
+    const saveable = messages.filter((m) => m.type === "user" || (m.type === "bot" && (m.status === "done" || m.status === "error")));
+    localStorage.setItem(CURRENT_KEY, JSON.stringify(saveable));
+  }, [messages]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   // Save current chat as a session (if non-empty) and reset
@@ -358,6 +422,7 @@ export default function App() {
   const handleNewChat = useCallback(() => {
     if (messages.length > 0) saveAndReset(messages);
     setMessages([]);
+    localStorage.removeItem(CURRENT_KEY);
     setInput("");
     setShowHistory(false);
   }, [messages, saveAndReset]);
@@ -365,6 +430,7 @@ export default function App() {
   const handleSelectSession = useCallback((session: Session) => {
     if (messages.length > 0) saveAndReset(messages);
     setMessages(session.messages);
+    localStorage.setItem(CURRENT_KEY, JSON.stringify(session.messages));
     setShowHistory(false);
   }, [messages, saveAndReset]);
 
@@ -401,28 +467,65 @@ export default function App() {
     ]);
 
     try {
-      const res = await fetch("http://localhost:8000/api/generate", {
+      const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: historySnapshot }),
       });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail ?? "Server error");
-      }
+      if (!res.ok || !res.body) throw new Error("Server error");
 
-      const data = await res.json();
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
 
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== botId) return m;
-          if (data.type === "text") {
-            return { id: botId, type: "bot", status: "done", kind: "text", text: data.content } as BotMsg;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const ev = JSON.parse(line.slice(6));
+
+          if (ev.type === "text_start") {
+            setMessages((prev) => prev.map((m) =>
+              m.id === botId
+                ? { id: botId, type: "bot", status: "streaming", kind: "text", text: "" } as BotMsg
+                : m
+            ));
+          } else if (ev.type === "text_chunk") {
+            setMessages((prev) => prev.map((m) =>
+              m.id === botId && m.type === "bot"
+                ? { ...m, text: (m.text ?? "") + ev.content } as BotMsg
+                : m
+            ));
+          } else if (ev.type === "rendering") {
+            setMessages((prev) => prev.map((m) =>
+              m.id === botId
+                ? { id: botId, type: "bot", status: "rendering" } as BotMsg
+                : m
+            ));
+          } else if (ev.type === "animation") {
+            setMessages((prev) => prev.map((m) =>
+              m.id === botId
+                ? { id: botId, type: "bot", status: "done", kind: "animation", videoUrl: ev.video_url, sceneName: ev.scene_name } as BotMsg
+                : m
+            ));
+          } else if (ev.type === "error") {
+            throw new Error(ev.detail);
+          } else if (ev.type === "done") {
+            setMessages((prev) => prev.map((m) =>
+              m.id === botId && m.type === "bot" && m.status === "streaming"
+                ? { ...m, status: "done" } as BotMsg
+                : m
+            ));
           }
-          return { id: botId, type: "bot", status: "done", kind: "animation", videoUrl: data.video_url, sceneName: data.scene_name } as BotMsg;
-        })
-      );
+        }
+      }
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : "Unknown error";
       setMessages((prev) =>
@@ -503,14 +606,13 @@ export default function App() {
       <main className="flex-1 flex flex-col overflow-hidden">
         {inChat ? (
           <>
-            <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scroll-dark px-6 py-6 min-h-0">
               <div className="max-w-3xl mx-auto flex flex-col gap-5">
                 {messages.map((m) =>
                   m.type === "user"
                     ? <UserBubble key={m.id} text={m.text} />
                     : <BotBubble key={m.id} msg={m} />
                 )}
-                <div ref={bottomRef} />
               </div>
             </div>
 
@@ -531,7 +633,7 @@ export default function App() {
             </div>
           </>
         ) : (
-          <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center px-6 py-10">
+          <div className="flex-1 overflow-y-auto scroll-dark flex flex-col items-center justify-center px-6 py-10">
             <div className="w-full max-w-3xl flex flex-col gap-7">
               <div>
                 <h1 className="text-4xl font-normal leading-tight tracking-tight text-neutral-500">

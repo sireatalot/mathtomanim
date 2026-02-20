@@ -5,3 +5,5 @@ media
 media
 node_modules
 *.pem
+*.key
+dist

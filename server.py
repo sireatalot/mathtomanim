@@ -14,10 +14,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal
 
+import json
+
 import oci
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -45,6 +48,9 @@ Manim rules (Community Edition v0.19):
     - Axes uses x_length/y_length, never width/height
     - No TRANSPARENT constant — use Line(...).set_stroke(opacity=0) for invisible paths
 - Guard always_redraw x_range upper bounds: max(tracker.get_value(), 0.001)
+- ALWAYS disable axis tick labels to avoid LaTeX rendering. Every Axes() call must include:
+    axis_config={"include_numbers": False}
+  Add any needed labels manually using Text() objects instead.
 
 ─── If the user asks a question or wants an explanation ───
 Respond with a clear, helpful text answer. Do NOT generate code.
@@ -57,7 +63,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -139,42 +145,67 @@ def is_animation_response(raw: str) -> bool:
     return bool(re.search(r"class\s+\w+\s*\(\s*Scene\s*\)", raw))
 
 
-# ── Pipeline ──────────────────────────────────────────────────────────────────
+# ── Streaming pipeline ────────────────────────────────────────────────────────
 
-def run_pipeline(history: list[dict]) -> dict:
-    raw = call_oci_ai(history)
+def _sse(event: dict) -> str:
+    return f"data: {json.dumps(event)}\n\n"
 
-    # ── Text answer ──────────────────────────────────────────────────────────
+
+async def generate_stream(history: list[dict]):
+    loop = asyncio.get_event_loop()
+
+    # Phase 1 — call OCI AI (blocking, run in thread)
+    try:
+        raw = await loop.run_in_executor(executor, call_oci_ai, history)
+    except Exception as e:
+        yield _sse({"type": "error", "detail": str(e)})
+        return
+
     if not is_animation_response(raw):
-        return {"type": "text", "content": raw}
+        # Stream text token by token for a typewriter effect
+        yield _sse({"type": "text_start"})
+        chunk_size = 3
+        for i in range(0, len(raw), chunk_size):
+            yield _sse({"type": "text_chunk", "content": raw[i:i + chunk_size]})
+            await asyncio.sleep(0.012)
+        yield _sse({"type": "done"})
+    else:
+        # Notify frontend that rendering has started
+        yield _sse({"type": "rendering"})
 
-    # ── Animation ────────────────────────────────────────────────────────────
-    code = extract_code(raw)
-    SCENE_FILE.write_text(code, encoding="utf-8")
+        try:
+            code = extract_code(raw)
+            SCENE_FILE.write_text(code, encoding="utf-8")
 
-    class_name = detect_class_name(code)
-    if not class_name:
-        raise ValueError("No Scene class detected in generated code.")
+            class_name = detect_class_name(code)
+            if not class_name:
+                raise ValueError("No Scene class detected in generated code.")
 
-    result = subprocess.run(
-        ["manim", "-ql", str(SCENE_FILE), class_name],
-        cwd=str(SCRIPT_DIR),
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Manim render failed:\n{result.stderr or result.stdout}")
+            def _render():
+                return subprocess.run(
+                    ["manim", "-ql", str(SCENE_FILE), class_name],
+                    cwd=str(SCRIPT_DIR),
+                    capture_output=True,
+                    text=True,
+                )
 
-    pattern = str(SCRIPT_DIR / "media" / "videos" / "generated_scene" / "480p15" / f"{class_name}.mp4")
-    matches = glob.glob(pattern)
-    if not matches:
-        raise FileNotFoundError(f"Rendered video not found at: {pattern}")
+            result = await loop.run_in_executor(executor, _render)
+            if result.returncode != 0:
+                raise RuntimeError(f"Manim render failed:\n{result.stderr or result.stdout}")
 
-    return {
-        "type": "animation",
-        "scene_name": class_name,
-        "video_url": f"/media/videos/generated_scene/480p15/{class_name}.mp4",
-    }
+            pattern = str(SCRIPT_DIR / "media" / "videos" / "generated_scene" / "480p15" / f"{class_name}.mp4")
+            if not glob.glob(pattern):
+                raise FileNotFoundError(f"Rendered video not found at: {pattern}")
+
+            yield _sse({
+                "type": "animation",
+                "scene_name": class_name,
+                "video_url": f"/media/videos/generated_scene/480p15/{class_name}.mp4",
+            })
+        except Exception as e:
+            yield _sse({"type": "error", "detail": str(e)})
+
+        yield _sse({"type": "done"})
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -190,9 +221,12 @@ class ChatRequest(BaseModel):
 @app.post("/api/generate")
 async def generate(req: ChatRequest):
     history = [{"role": m.role, "content": m.content} for m in req.messages]
-    loop = asyncio.get_event_loop()
-    try:
-        result = await loop.run_in_executor(executor, run_pipeline, history)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return StreamingResponse(
+        generate_stream(history),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# Must be registered last so API routes take priority over static files
+app.mount("/", StaticFiles(directory=str(SCRIPT_DIR / "dist"), html=True), name="static")
