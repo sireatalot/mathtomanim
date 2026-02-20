@@ -1,85 +1,68 @@
 from manim import *
+import numpy as np
 
-class NeuralNetworkScene(Scene):
+class SineCosineScene(Scene):
     def construct(self):
-        # Parameters
-        input_count = 3
-        hidden_count = 4
-        output_count = 2
-        neuron_radius = 0.3
-        layer_spacing = 3
-        neuron_spacing = 1
+        axes = Axes(
+            x_range=[0, 2 * PI, PI / 2],
+            y_range=[-1.5, 1.5, 0.5],
+            x_length=10,
+            y_length=4,
+            axis_config={"color": WHITE},
+            tips=False,
+        )
+        axes_labels = VGroup(
+            axes.get_x_axis_label(Text("x")),
+            axes.get_y_axis_label(Text("y")),
+        )
 
-        # Create layers
-        input_layer = VGroup(*[
-            Circle(radius=neuron_radius, color=BLUE).add(Text(str(i+1), font_size=24))
-            for i in range(input_count)
-        ]).arrange(DOWN, buff=neuron_spacing).move_to(LEFT*layer_spacing)
+        sine = axes.plot(lambda x: np.sin(x), color=BLUE)
+        cosine = axes.plot(lambda x: np.cos(x), color=RED)
 
-        hidden_layer = VGroup(*[
-            Circle(radius=neuron_radius, color=GREEN).add(Text(str(i+1), font_size=24))
-            for i in range(hidden_count)
-        ]).arrange(DOWN, buff=neuron_spacing).move_to(ORIGIN)
+        sine_label = Text("sin").next_to(sine, UP, buff=0.2).set_color(BLUE)
+        cosine_label = Text("cos").next_to(cosine, UP, buff=0.2).set_color(RED)
 
-        output_layer = VGroup(*[
-            Circle(radius=neuron_radius, color=RED).add(Text(str(i+1), font_size=24))
-            for i in range(output_count)
-        ]).arrange(DOWN, buff=neuron_spacing).move_to(RIGHT*layer_spacing)
+        self.play(Create(axes), Write(axes_labels))
+        self.play(Create(sine), Write(sine_label))
+        self.play(Create(cosine), Write(cosine_label))
 
-        # Labels
-        input_label = Text("Input", font_size=24).next_to(input_layer, UP, buff=0.5)
-        hidden_label = Text("Hidden", font_size=24).next_to(hidden_layer, UP, buff=0.5)
-        output_label = Text("Output", font_size=24).next_to(output_layer, UP, buff=0.5)
+        # trackers for moving points
+        tracker_sin = ValueTracker(0)
+        tracker_cos = ValueTracker(0)
 
-        # Add layers and labels
-        self.play(FadeIn(input_layer), FadeIn(hidden_layer), FadeIn(output_layer),
-                  FadeIn(input_label), FadeIn(hidden_label), FadeIn(output_label))
-        self.wait(0.5)
+        # moving dots
+        dot_sin = Dot(color=BLUE).add_updater(
+            lambda m: m.move_to(axes.c2p(tracker_sin.get_value(),
+                                         np.sin(tracker_sin.get_value()))))
+        dot_cos = Dot(color=RED).add_updater(
+            lambda m: m.move_to(axes.c2p(tracker_cos.get_value(),
+                                         np.cos(tracker_cos.get_value()))))
 
-        # Create connections
-        connections = VGroup()
-        for inp in input_layer:
-            for hid in hidden_layer:
-                conn = Arrow(start=inp.get_center(), end=hid.get_center(),
-                             buff=neuron_radius, stroke_width=1, color=GRAY)
-                connections.add(conn)
-        for hid in hidden_layer:
-            for out in output_layer:
-                conn = Arrow(start=hid.get_center(), end=out.get_center(),
-                             buff=neuron_radius, stroke_width=1, color=GRAY)
-                connections.add(conn)
+        # vertical lines from x‑axis to the curves
+        line_sin = always_redraw(
+            lambda: Line(
+                axes.c2p(max(tracker_sin.get_value(), 0.001), 0),
+                axes.c2p(tracker_sin.get_value(),
+                         np.sin(tracker_sin.get_value())),
+                color=BLUE,
+            )
+        )
+        line_cos = always_redraw(
+            lambda: Line(
+                axes.c2p(max(tracker_cos.get_value(), 0.001), 0),
+                axes.c2p(tracker_cos.get_value(),
+                         np.cos(tracker_cos.get_value())),
+                color=RED,
+            )
+        )
 
-        self.play(FadeIn(connections, lag_ratio=0.01))
-        self.wait(0.5)
+        self.add(dot_sin, dot_cos, line_sin, line_cos)
 
-        # Function to animate a signal traveling along a path
-        def signal_dot(start, end, color):
-            tracker = ValueTracker(0)
-            dot = always_redraw(lambda: Dot(
-                point=start + (end - start) * tracker.get_value(),
-                radius=0.08,
-                color=color
-            ))
-            return dot, tracker
+        self.play(
+            tracker_sin.animate.set_value(2 * PI),
+            tracker_cos.animate.set_value(2 * PI),
+            run_time=6,
+            rate_func=linear,
+        )
 
-        # Animate signals from each input neuron through hidden to output
-        for i, inp in enumerate(input_layer):
-            # Choose a hidden neuron to route through (simple round-robin)
-            hid = hidden_layer[i % hidden_count]
-            out = output_layer[i % output_count]
-
-            # Signal from input to hidden
-            dot1, tr1 = signal_dot(inp.get_center(), hid.get_center(), YELLOW)
-            self.add(dot1)
-            self.play(tr1.animate.set_value(1), run_time=0.8, rate_func=linear)
-            self.remove(dot1)
-
-            # Signal from hidden to output
-            dot2, tr2 = signal_dot(hid.get_center(), out.get_center(), ORANGE)
-            self.add(dot2)
-            self.play(tr2.animate.set_value(1), run_time=0.8, rate_func=linear)
-            self.remove(dot2)
-
-            self.wait(0.3)
-
-        self.wait(1)
+        self.wait(2)
