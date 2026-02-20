@@ -1,0 +1,1 @@
+I’m not sure which video you’re referring to, so I can’t tell you the exact number of parameters (weights) in that model. Could you provide more details or a link to the video?

@@ -1,0 +1,7 @@
+__pycache__
+media
+.env
+.claude
+media
+node_modules
+*.pem
